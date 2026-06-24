@@ -46,7 +46,23 @@ sudo apt install firejail
 
 ## Installation
 
-### From source
+### One-line installer (recommended)
+
+```bash
+git clone https://github.com/datacarismo/kennelbox.git
+cd kennelbox
+bash install.sh
+```
+
+The installer checks your Python version, optionally installs firejail via `apt`, runs `pip install -e .`, and verifies `kennelbox` is on your PATH.
+
+```
+Options:
+  --yes           accept all prompts non-interactively
+  --no-firejail   skip the firejail apt step
+```
+
+### Manual install
 
 ```bash
 git clone https://github.com/datacarismo/kennelbox.git
