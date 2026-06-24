@@ -246,7 +246,7 @@ def status(
         f"[green]{state['active_agent']}[/green]" if state.get("active_agent") else "[dim]none[/dim]",
     )
     t.add_row(
-        "Network",
+        "Command subprocess network",
         "[red]blocked[/red]" if not sandbox_cfg.get("network", False) else "[green]allowed[/green]",
     )
     t.add_row(
