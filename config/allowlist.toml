@@ -1,0 +1,44 @@
+[commands]
+allowed = [
+  "ls",
+  "cat",
+  "grep",
+  "python3",
+  "pip",
+  "node",
+  "npm",
+  "git status",
+  "git log",
+  "git diff",
+]
+blocked = [
+  "rm -rf",
+  "sudo",
+  "curl",
+  "wget",
+  "nc",
+  "chmod 777",
+  "mkfs",
+  "dd",
+  "shutdown",
+  "reboot",
+]
+
+[files]
+allowed_extensions = [
+  ".py",
+  ".js",
+  ".ts",
+  ".json",
+  ".toml",
+  ".yaml",
+  ".md",
+  ".txt",
+  ".env.example",
+]
+blocked_extensions = [
+  ".env",
+  ".pem",
+  ".key",
+  ".cert",
+]
