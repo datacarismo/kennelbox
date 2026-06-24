@@ -1,0 +1,5 @@
+[firejail]
+network = false
+read_only_home = true
+restrict_above_cwd = true
+seccomp = true
