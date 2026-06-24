@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kennelbox"
+version = "0.1.0"
+description = "Sandboxed AI agent workspace with MCP bridge"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["ai", "agent", "sandbox", "mcp", "firejail"]
+dependencies = [
+    "typer>=0.12",
+    "rich>=13",
+    "tomli>=2.0; python_version < '3.11'",
+]
+
+[project.scripts]
+kennelbox = "kennelbox:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["sandbox*", "agent_bridge*"]
+
+[tool.setuptools.package-data]
+"*" = ["config/*.toml"]
