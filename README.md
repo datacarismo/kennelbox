@@ -206,6 +206,7 @@ kennelbox/
 
 1. **Filesystem** — firejail whitelists only `$CWD`. `/home`, `/etc`, `/var`, `/root`, `/tmp`, `/proc`, `/sys` are all blacklisted.
 2. **Network** — disabled by default (`net=none` in firejail). Set `network = true` in `sandbox.toml` to enable.
+   > **Note:** this restriction applies only to shell commands run via the `run_command` tool (the firejail subprocess). The kennelbox process itself and the agent process connecting over stdio are outside the sandbox — LLM API calls (to Anthropic, OpenAI, etc.) are unaffected.
 3. **Commands** — only commands in `allowed` run; any command matching a `blocked` pattern is rejected before execution.
 4. **Files** — only `allowed_extensions` may be read or written; `blocked_extensions` are always rejected.
 5. **Path escape** — every file path is resolved and checked against the project root before any I/O.
