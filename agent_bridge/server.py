@@ -29,6 +29,8 @@ def _load_toml(path: Path) -> dict:
         return tomllib.load(f)
 
 
+_BLOCKED_FILENAMES = {".env", ".pem", ".key", ".cert", ".pfx", ".p12"}
+
 class AllowlistGuard:
     """Validates tool requests against the project's allowlist.toml."""
 
@@ -40,24 +42,31 @@ class AllowlistGuard:
         cmds = cfg.get("commands", {})
         files = cfg.get("files", {})
         self.allowed_commands: list[str] = cmds.get("allowed", [])
-        self.blocked_commands: list[str] = cmds.get("blocked", [])
+        # warn_patterns: advisory only — logged but never used to block
+        self.warn_patterns: list[str] = cmds.get("warn_patterns", cmds.get("blocked", []))
         self.allowed_extensions: list[str] = files.get("allowed_extensions", [])
-        self.blocked_extensions: list[str] = files.get("blocked_extensions", [])
 
     def check_command(self, command: str) -> tuple[bool, str]:
-        for blocked in self.blocked_commands:
-            if blocked in command:
-                return False, f"Command contains blocked pattern: '{blocked}'"
-        # Must match an allowed prefix
+        for pattern in self.warn_patterns:
+            if pattern in command:
+                print(
+                    f"kennelbox [WARN] command matched advisory pattern '{pattern}': {command!r}",
+                    file=sys.stderr,
+                )
         for allowed in self.allowed_commands:
             if command == allowed or command.startswith(allowed + " "):
                 return True, "ok"
         return False, f"Command not in allowlist. Permitted: {self.allowed_commands}"
 
     def check_file(self, filepath: str) -> tuple[bool, str]:
+        name = Path(filepath).name
+        # Explicit filename deny-list (dotfiles with sensitive names)
+        if name in _BLOCKED_FILENAMES:
+            return False, f"File '{name}' is blocked"
+        # Dotfiles not in the allowed set are blocked
+        if name.startswith("."):
+            return False, f"Dotfile '{name}' is not permitted"
         suffix = Path(filepath).suffix
-        if suffix in self.blocked_extensions:
-            return False, f"File extension '{suffix}' is blocked"
         if self.allowed_extensions and suffix not in self.allowed_extensions:
             return False, f"File extension '{suffix}' not in allowlist"
         return True, "ok"
@@ -82,18 +91,17 @@ def _safe_path(cwd: Path, rel: str) -> Path:
 # Tool implementations
 # ---------------------------------------------------------------------------
 
-def tool_read_file(cwd: Path, guard: AllowlistGuard, params: dict) -> Any:
+def tool_read_file(cwd: Path, guard: AllowlistGuard, sandbox_cfg: dict, params: dict) -> Any:
     path_str = params.get("path", "")
     ok, reason = guard.check_file(path_str)
     if not ok:
         raise PermissionError(reason)
-    target = _safe_path(cwd, path_str)
-    if not target.exists():
-        raise FileNotFoundError(f"File not found: {path_str}")
-    return {"content": target.read_text(errors="replace"), "path": str(target)}
+    _safe_path(cwd, path_str)  # verify containment before handing to sandbox
+    from sandbox.jail import run_sandboxed_file_op
+    return run_sandboxed_file_op("read", str((cwd / path_str).resolve()), cwd, sandbox_cfg)
 
 
-def tool_write_file(cwd: Path, guard: AllowlistGuard, params: dict) -> Any:
+def tool_write_file(cwd: Path, guard: AllowlistGuard, sandbox_cfg: dict, params: dict) -> Any:
     path_str = params.get("path", "")
     content = params.get("content", "")
     ok, reason = guard.check_file(path_str)
@@ -106,24 +114,15 @@ def tool_write_file(cwd: Path, guard: AllowlistGuard, params: dict) -> Any:
         raise PermissionError("Writes to .kennelbox/ are not permitted")
     except ValueError:
         pass  # target is not inside .kennelbox/ — safe to proceed
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content)
-    return {"written": str(target), "bytes": len(content.encode())}
+    from sandbox.jail import run_sandboxed_file_op
+    return run_sandboxed_file_op("write", str(target), cwd, sandbox_cfg, content=content)
 
 
-def tool_list_directory(cwd: Path, guard: AllowlistGuard, params: dict) -> Any:
+def tool_list_directory(cwd: Path, guard: AllowlistGuard, sandbox_cfg: dict, params: dict) -> Any:
     path_str = params.get("path", ".")
     target = _safe_path(cwd, path_str)
-    if not target.is_dir():
-        raise NotADirectoryError(f"Not a directory: {path_str}")
-    entries = []
-    for item in sorted(target.iterdir()):
-        entries.append({
-            "name": item.name,
-            "type": "dir" if item.is_dir() else "file",
-            "size": item.stat().st_size if item.is_file() else None,
-        })
-    return {"path": str(target), "entries": entries}
+    from sandbox.jail import run_sandboxed_file_op
+    return run_sandboxed_file_op("list", str(target), cwd, sandbox_cfg)
 
 
 def tool_run_command(cwd: Path, guard: AllowlistGuard, sandbox_cfg: dict, params: dict) -> Any:
@@ -235,11 +234,11 @@ def dispatch(request: dict, cwd: Path, guard: AllowlistGuard, sandbox_cfg: dict)
             tool_args = params.get("arguments", {})
 
             if tool_name == "read_file":
-                result = tool_read_file(cwd, guard, tool_args)
+                result = tool_read_file(cwd, guard, sandbox_cfg, tool_args)
             elif tool_name == "write_file":
-                result = tool_write_file(cwd, guard, tool_args)
+                result = tool_write_file(cwd, guard, sandbox_cfg, tool_args)
             elif tool_name == "list_directory":
-                result = tool_list_directory(cwd, guard, tool_args)
+                result = tool_list_directory(cwd, guard, sandbox_cfg, tool_args)
             elif tool_name == "run_command":
                 result = tool_run_command(cwd, guard, sandbox_cfg, tool_args)
             else:

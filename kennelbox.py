@@ -172,6 +172,15 @@ def run(
     state["active_agent"] = agent
     _save_state(kb_dir, state)
 
+    from sandbox.jail import firejail_available
+    if not firejail_available():
+        console.print(
+            "\n[bold red]Error:[/bold red] firejail is required but not installed.\n"
+            "  Install it with:  [bold]sudo apt install firejail[/bold]\n"
+            "  kennelbox refuses to start without a kernel-level sandbox.\n"
+        )
+        raise typer.Exit(1)
+
     console.print("\n[bold cyan]MCP bridge running on stdio. Connect your agent now.[/bold cyan]")
     console.print("[dim](Ctrl-C to stop)[/dim]\n")
 
@@ -204,8 +213,8 @@ def rules(
     t.add_column("Values")
     for cmd in cmds.get("allowed", []):
         t.add_row("[green]ALLOWED[/green]", cmd)
-    for cmd in cmds.get("blocked", []):
-        t.add_row("[red]BLOCKED[/red]", cmd)
+    for cmd in cmds.get("warn_patterns", cmds.get("blocked", [])):
+        t.add_row("[yellow]WARN[/yellow]", cmd)
     console.print(t)
 
     console.print()
@@ -215,9 +224,8 @@ def rules(
     f.add_column("Extension")
     for ext in files.get("allowed_extensions", []):
         f.add_row("[green]ALLOWED[/green]", ext)
-    for ext in files.get("blocked_extensions", []):
-        f.add_row("[red]BLOCKED[/red]", ext)
     console.print(f)
+    console.print("[dim]Dotfiles and sensitive filenames (.env, .pem, .key, etc.) are always denied.[/dim]")
     console.print()
 
 

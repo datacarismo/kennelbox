@@ -58,6 +58,15 @@ def build_firejail_args(cwd: Path, sandbox_cfg: dict, env_path: Optional[str] = 
     return args
 
 
+def _require_firejail() -> None:
+    if not firejail_available():
+        raise RuntimeError(
+            "firejail is required but not installed.\n"
+            "Install it with:  sudo apt install firejail\n"
+            "kennelbox refuses to start without a kernel-level sandbox."
+        )
+
+
 def run_sandboxed(
     command: list[str],
     cwd: Path,
@@ -65,19 +74,12 @@ def run_sandboxed(
     env_path: Optional[str] = None,
     timeout: int = 30,
 ) -> subprocess.CompletedProcess:
-    """Run a command inside firejail. Falls back to plain subprocess with CWD restriction if firejail is absent."""
-    if firejail_available():
-        jail_args = build_firejail_args(cwd, sandbox_cfg, env_path)
-        full_cmd = jail_args + ["--"] + command
-    else:
-        console.print(
-            "  [yellow]firejail not found — running with CWD restriction only (install firejail for full sandboxing)[/yellow]"
-        )
-        full_cmd = command
-
+    """Run a command inside firejail. Raises RuntimeError if firejail is not installed."""
+    _require_firejail()
+    jail_args = build_firejail_args(cwd, sandbox_cfg, env_path)
+    full_cmd = jail_args + ["--"] + command
     env = os.environ.copy()
-    env["HOME"] = str(cwd)  # prevent home escape even without firejail
-
+    env["HOME"] = str(cwd)
     return subprocess.run(
         full_cmd,
         cwd=str(cwd),
@@ -86,3 +88,60 @@ def run_sandboxed(
         timeout=timeout,
         env=env,
     )
+
+
+def run_sandboxed_file_op(
+    op: str,
+    path: str,
+    cwd: Path,
+    sandbox_cfg: dict,
+    content: str = "",
+    timeout: int = 30,
+) -> dict:
+    """Run a file operation (read/write/list) inside firejail, returning parsed JSON."""
+    import json
+
+    _require_firejail()
+
+    _scripts = {
+        "read": (
+            "import sys,json; f=open(sys.argv[1],errors='replace');"
+            " print(json.dumps({'content':f.read(),'path':sys.argv[1]}))"
+        ),
+        "list": (
+            "import sys,json,os; p=sys.argv[1]; entries=["
+            "{'name':n,'type':'dir' if os.path.isdir(os.path.join(p,n)) else 'file',"
+            "'size':os.path.getsize(os.path.join(p,n)) if os.path.isfile(os.path.join(p,n)) else None}"
+            " for n in sorted(os.listdir(p))];"
+            " print(json.dumps({'path':p,'entries':entries}))"
+        ),
+        "write": (
+            "import sys,json,os; content=sys.stdin.read(); p=sys.argv[1];"
+            " os.makedirs(os.path.dirname(p) or '.', exist_ok=True);"
+            " open(p,'w').write(content);"
+            " print(json.dumps({'written':p,'bytes':len(content.encode())}))"
+        ),
+    }
+
+    script = _scripts[op]
+    command = ["python3", "-c", script, path]
+    jail_args = build_firejail_args(cwd, sandbox_cfg)
+    full_cmd = jail_args + ["--"] + command
+
+    env = os.environ.copy()
+    env["HOME"] = str(cwd)
+
+    result = subprocess.run(
+        full_cmd,
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        input=content if op == "write" else None,
+        env=env,
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or f"sandboxed {op} failed")
+
+    return json.loads(result.stdout)

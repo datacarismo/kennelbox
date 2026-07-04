@@ -11,7 +11,9 @@ allowed = [
   "git log",
   "git diff",
 ]
-blocked = [
+# Advisory patterns: matched commands are logged as warnings but NOT blocked.
+# The allowlist above is the only real access control.
+warn_patterns = [
   "rm -rf",
   "sudo",
   "curl",
@@ -25,6 +27,8 @@ blocked = [
 ]
 
 [files]
+# Matched by file extension (suffix). Dotfiles and sensitive filenames
+# (.env, .pem, .key, etc.) are denied unconditionally in code regardless of this list.
 allowed_extensions = [
   ".py",
   ".js",
@@ -34,11 +38,4 @@ allowed_extensions = [
   ".yaml",
   ".md",
   ".txt",
-  ".env.example",
-]
-blocked_extensions = [
-  ".env",
-  ".pem",
-  ".key",
-  ".cert",
 ]
