@@ -69,9 +69,11 @@ class AllowlistGuard:
 
 def _safe_path(cwd: Path, rel: str) -> Path:
     """Resolve path and verify it stays within cwd."""
-    target = (cwd / rel).resolve()
     cwd_resolved = cwd.resolve()
-    if not str(target).startswith(str(cwd_resolved)):
+    target = (cwd_resolved / rel).resolve()
+    try:
+        target.relative_to(cwd_resolved)
+    except ValueError:
         raise PermissionError(f"Path escape blocked: '{rel}' resolves outside project root")
     return target
 
@@ -98,6 +100,12 @@ def tool_write_file(cwd: Path, guard: AllowlistGuard, params: dict) -> Any:
     if not ok:
         raise PermissionError(reason)
     target = _safe_path(cwd, path_str)
+    kennelbox_dir = cwd.resolve() / ".kennelbox"
+    try:
+        target.relative_to(kennelbox_dir)
+        raise PermissionError("Writes to .kennelbox/ are not permitted")
+    except ValueError:
+        pass  # target is not inside .kennelbox/ — safe to proceed
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content)
     return {"written": str(target), "bytes": len(content.encode())}
