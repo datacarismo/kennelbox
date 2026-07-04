@@ -19,6 +19,9 @@ dependencies = [
 [project.scripts]
 kennelbox = "kennelbox:app"
 
+[tool.setuptools]
+py-modules = ["kennelbox"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["sandbox*", "agent_bridge*"]
