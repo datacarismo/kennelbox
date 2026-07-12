@@ -10,37 +10,38 @@ from rich.console import Console
 
 console = Console(stderr=True)
 
-# Syscalls too dangerous for agent use
-_SECCOMP_DROP = [
-    "mount", "umount2", "ptrace", "kexec_load", "open_by_handle_at",
-    "init_module", "finit_module", "delete_module", "swapon", "swapoff",
-    "reboot", "sethostname", "setdomainname", "iopl", "ioperm",
-    "settimeofday", "clock_settime", "adjtimex",
-]
-
-
 def firejail_available() -> bool:
     return shutil.which("firejail") is not None
+
+
+# Credential directories that should never be readable by a sandboxed agent.
+# System paths (/etc, /usr, etc.) remain accessible because executables need them;
+# these targeted blacklists protect user-space secrets specifically.
+_CREDENTIAL_DIRS = [
+    ".ssh", ".gnupg", ".aws", ".azure", ".config/gcloud",
+    ".config/gh", ".netrc", ".npmrc", ".pypirc",
+]
 
 
 def build_firejail_args(cwd: Path, sandbox_cfg: dict, env_path: Optional[str] = None) -> list[str]:
     """Construct firejail CLI arguments from sandbox config."""
     args = ["firejail", "--quiet"]
 
-    # Filesystem restrictions
+    # Whitelist-first filesystem isolation: only CWD (and optionally env_path) are visible
+    # within the home directory tree. --private-tmp gives the process a clean tmpfs for /tmp;
+    # do NOT also blacklist /tmp — that conflicts with --private-tmp.
     args += [
         f"--whitelist={cwd}",
-        "--blacklist=/home",
-        "--blacklist=/root",
-        "--blacklist=/etc",
-        "--blacklist=/var",
-        "--blacklist=/tmp",
-        "--blacklist=/proc",
-        "--blacklist=/sys",
-        f"--chdir={cwd}",
+        f"--private-cwd={cwd}",
         "--noroot",
         "--private-tmp",
+        "--private-dev",
     ]
+
+    # Block credential directories under $HOME regardless of whitelist mode.
+    home = Path(os.environ.get("HOME", "/root"))
+    for rel in _CREDENTIAL_DIRS:
+        args.append(f"--blacklist={home / rel}")
 
     # Include venv/node_modules if outside CWD (unlikely but guard anyway)
     if env_path and not env_path.startswith(str(cwd)):
@@ -50,10 +51,9 @@ def build_firejail_args(cwd: Path, sandbox_cfg: dict, env_path: Optional[str] = 
     if sandbox_cfg.get("network", False) is False:
         args.append("--net=none")
 
-    # Seccomp
+    # Seccomp: use firejail's maintained default profile rather than a hand-rolled drop list.
     if sandbox_cfg.get("seccomp", True):
-        drop_list = ",".join(_SECCOMP_DROP)
-        args.append(f"--seccomp.drop={drop_list}")
+        args.append("--seccomp")
 
     return args
 
