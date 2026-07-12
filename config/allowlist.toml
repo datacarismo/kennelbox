@@ -29,6 +29,12 @@ warn_patterns = [
   "reboot",
 ]
 
+[limits]
+# Resource caps enforced by the MCP server (bytes).
+max_read_bytes = 10485760    # 10 MB — read_file refuses larger files
+max_write_bytes = 10485760   # 10 MB — write_file refuses larger content
+max_output_bytes = 1048576   # 1 MB — run_command stdout/stderr truncated beyond this
+
 [files]
 # Matched by file extension (suffix). Dotfiles and sensitive filenames
 # (.env, .pem, .key, etc.) are denied unconditionally in code regardless of this list.

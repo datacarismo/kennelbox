@@ -54,6 +54,10 @@ class AllowlistGuard:
         self.blocked_args: set[str] = set(
             cmds.get("blocked_args", list(_DEFAULT_BLOCKED_ARGS))
         )
+        limits = cfg.get("limits", {})
+        self.max_read_bytes: int = limits.get("max_read_bytes", 10 * 1024 * 1024)
+        self.max_write_bytes: int = limits.get("max_write_bytes", 10 * 1024 * 1024)
+        self.max_output_bytes: int = limits.get("max_output_bytes", 1 * 1024 * 1024)
 
     def check_command(self, command: str) -> tuple[bool, str]:
         try:
@@ -114,9 +118,15 @@ def tool_read_file(cwd: Path, guard: AllowlistGuard, sandbox_cfg: dict, params: 
     ok, reason = guard.check_file(path_str)
     if not ok:
         raise PermissionError(reason)
-    _safe_path(cwd, path_str)  # verify containment before handing to sandbox
+    target = _safe_path(cwd, path_str)  # verify containment before handing to sandbox
+    if target.is_file():
+        size = target.stat().st_size
+        if size > guard.max_read_bytes:
+            raise PermissionError(
+                f"File is {size} bytes, exceeds max_read_bytes ({guard.max_read_bytes})"
+            )
     from sandbox.jail import run_sandboxed_file_op
-    return run_sandboxed_file_op("read", str((cwd / path_str).resolve()), cwd, sandbox_cfg)
+    return run_sandboxed_file_op("read", str(target), cwd, sandbox_cfg)
 
 
 def tool_write_file(cwd: Path, guard: AllowlistGuard, sandbox_cfg: dict, params: dict) -> Any:
@@ -125,6 +135,11 @@ def tool_write_file(cwd: Path, guard: AllowlistGuard, sandbox_cfg: dict, params:
     ok, reason = guard.check_file(path_str)
     if not ok:
         raise PermissionError(reason)
+    content_bytes = len(content.encode())
+    if content_bytes > guard.max_write_bytes:
+        raise PermissionError(
+            f"Content is {content_bytes} bytes, exceeds max_write_bytes ({guard.max_write_bytes})"
+        )
     target = _safe_path(cwd, path_str)
     kennelbox_dir = cwd.resolve() / ".kennelbox"
     try:
@@ -154,14 +169,26 @@ def tool_run_command(cwd: Path, guard: AllowlistGuard, sandbox_cfg: dict, params
     args = shlex.split(command)
     try:
         result = run_sandboxed(args, cwd, sandbox_cfg, timeout=params.get("timeout", 30))
-        return {
-            "stdout": result.stdout,
-            "stderr": result.stderr,
+        stdout, stdout_truncated = _truncate(result.stdout, guard.max_output_bytes)
+        stderr, stderr_truncated = _truncate(result.stderr, guard.max_output_bytes)
+        response = {
+            "stdout": stdout,
+            "stderr": stderr,
             "returncode": result.returncode,
             "sandboxed": firejail_available(),
         }
+        if stdout_truncated or stderr_truncated:
+            response["truncated"] = True
+        return response
     except Exception as exc:
         raise RuntimeError(str(exc)) from exc
+
+
+def _truncate(text: str, max_bytes: int) -> tuple[str, bool]:
+    encoded = text.encode()
+    if len(encoded) <= max_bytes:
+        return text, False
+    return encoded[:max_bytes].decode(errors="replace") + "\n[output truncated]", True
 
 
 # ---------------------------------------------------------------------------
@@ -296,6 +323,13 @@ def run_server(cwd: Path, sandbox_cfg: dict) -> None:
         except json.JSONDecodeError as exc:
             response = _err(None, -32700, f"Parse error: {exc}")
             print(json.dumps(response), flush=True)
+            continue
+
+        # JSON-RPC 2.0: a request without an "id" is a notification — the server
+        # MUST NOT reply, even with an error (e.g. MCP's notifications/initialized).
+        if "id" not in request:
+            method = request.get("method", "")
+            print(f"kennelbox [INFO] notification received: {method}", file=sys.stderr)
             continue
 
         response = dispatch(request, cwd, guard, sandbox_cfg)

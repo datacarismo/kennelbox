@@ -93,60 +93,74 @@ PY_VERSION=$("$PYTHON" -c 'import sys; print(f"{sys.version_info.major}.{sys.ver
 success "Found $PYTHON $PY_VERSION"
 
 # ---------------------------------------------------------------------------
-# Step 3: firejail (optional)
+# Step 3: firejail (REQUIRED — kennelbox refuses to start without it)
 # ---------------------------------------------------------------------------
 if [[ "$OPT_NO_FIREJAIL" == "1" ]]; then
-  warn "Skipping firejail install (--no-firejail). Commands run with CWD restriction only."
+  warn "Skipping firejail install (--no-firejail)."
+  warn "NOTE: kennelbox REQUIRES firejail and will refuse to start without it."
 elif command -v firejail &>/dev/null; then
   success "firejail already installed: $(firejail --version 2>&1 | head -1)"
 elif command -v apt-get &>/dev/null; then
   echo ""
-  warn "firejail not found. It provides full kernel-level sandboxing."
+  warn "firejail not found. kennelbox requires it — it will refuse to start without it."
   if confirm "  Install firejail via apt-get (requires sudo)?"; then
     info "Installing firejail..."
     if sudo apt-get install -y firejail; then
       success "firejail installed"
     else
-      warn "apt-get install failed. Continuing without firejail (CWD-only restriction)."
+      fail "apt-get install failed. firejail is required — resolve and re-run."
     fi
   else
-    warn "Skipping firejail. Continuing without full sandboxing."
+    warn "Skipping firejail. kennelbox will NOT run until you install it:"
+    warn "  sudo apt install firejail"
   fi
 else
-  warn "apt-get not available. Install firejail manually for full sandboxing."
+  warn "apt-get not available. Install firejail manually — kennelbox requires it:"
   warn "  https://github.com/netblue30/firejail"
 fi
 
 # ---------------------------------------------------------------------------
-# Step 4: pip install
+# Step 4: install the Python package (pipx preferred, pip fallback)
 # ---------------------------------------------------------------------------
 info "Installing kennelbox Python package..."
 
-# Find pip
-PIP=""
-for candidate in pip pip3; do
-  if command -v "$candidate" &>/dev/null; then
-    PIP="$candidate"
-    break
-  fi
-done
-
-if [[ -z "$PIP" ]]; then
-  # Try python -m pip as fallback
-  if "$PYTHON" -m pip --version &>/dev/null 2>&1; then
-    PIP="$PYTHON -m pip"
-  else
-    fail "pip not found. Install pip: $PYTHON -m ensurepip --upgrade"
-  fi
-fi
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-info "Running: $PIP install -e \"$SCRIPT_DIR\""
-if $PIP install -e "$SCRIPT_DIR" --quiet; then
-  success "kennelbox installed"
+# pipx installs into an isolated venv — avoids PEP 668 "externally managed
+# environment" errors on modern Debian/Ubuntu and keeps system Python clean.
+if command -v pipx &>/dev/null; then
+  info "Running: pipx install --editable \"$SCRIPT_DIR\""
+  if pipx install --editable "$SCRIPT_DIR" --force; then
+    success "kennelbox installed via pipx"
+  else
+    fail "pipx install failed. Check the output above for details."
+  fi
 else
-  fail "pip install failed. Check the output above for details."
+  warn "pipx not found — falling back to pip. Consider: sudo apt install pipx"
+
+  PIP=""
+  for candidate in pip pip3; do
+    if command -v "$candidate" &>/dev/null; then
+      PIP="$candidate"
+      break
+    fi
+  done
+
+  if [[ -z "$PIP" ]]; then
+    if "$PYTHON" -m pip --version &>/dev/null 2>&1; then
+      PIP="$PYTHON -m pip"
+    else
+      fail "Neither pipx nor pip found. Install pipx: sudo apt install pipx"
+    fi
+  fi
+
+  info "Running: $PIP install -e \"$SCRIPT_DIR\""
+  if $PIP install -e "$SCRIPT_DIR" --quiet; then
+    success "kennelbox installed via pip"
+  else
+    fail "pip install failed (possibly PEP 668 externally-managed environment)." \
+         "Install pipx instead: sudo apt install pipx && pipx install --editable \"$SCRIPT_DIR\""
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -169,7 +183,7 @@ echo "║  kennelbox installation complete!   ║"
 echo "╚══════════════════════════════════════╝${RESET}"
 echo ""
 echo "  Python:    ${PY_VERSION}"
-echo "  firejail:  $(command -v firejail &>/dev/null && echo "$(firejail --version 2>&1 | head -1)" || echo "not installed (software CWD restriction only)")"
+echo "  firejail:  $(command -v firejail &>/dev/null && echo "$(firejail --version 2>&1 | head -1)" || echo "NOT INSTALLED — kennelbox will refuse to start")"
 echo ""
 echo "  ${BOLD}Next steps:${RESET}"
 echo "    cd /path/to/your/project"

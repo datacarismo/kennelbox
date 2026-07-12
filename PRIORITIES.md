@@ -6,6 +6,19 @@ items before this is safe to point at a real home directory.
 
 Legend — **Severity**: how bad if exploited. **Effort**: rough implementation cost.
 
+> **STATUS (2026-07-11): all items #1–#11 are RESOLVED.**
+> - #1: trust model decided — firejail is the only real boundary; allowlist is policy/UX. Additionally, inline code-execution flags (`-c`, `-e`, `--eval`, `--exec`, `-x`, `--command`) are blocked via `blocked_args`.
+> - #2: firejail mandatory — kennelbox refuses to start without it.
+> - #3: all file tools route through `run_sandboxed_file_op` inside firejail.
+> - #4: `_safe_path` uses `Path.relative_to` after `resolve()`.
+> - #5: writes to `.kennelbox/` denied unconditionally.
+> - #6: blocklist renamed `warn_patterns`, advisory-only.
+> - #7: dotfiles + sensitive filenames denied by name; suffix check only for the allowlist.
+> - #8: whitelist-first firejail profile, `--private-tmp`/`--private-dev`, credential-dir blacklists, default `--seccomp`.
+> - #9: `[limits]` caps for read/write sizes and command output.
+> - #10: notifications (no-`id` requests) get no response, per JSON-RPC 2.0.
+> - #11: installer prefers pipx; README security model rewritten to match reality.
+
 ---
 
 ## P0 — Containment is currently bypassable (do these first)

@@ -22,8 +22,9 @@ A local sandboxed AI agent workspace CLI. Agents like OpenClaw and Hermes Agent 
 
 - **CWD lock** — agents can only read/write inside the directory where `kennelbox init` was run
 - **Auto-venv** — detects Python, Node, or generic projects and sets up an isolated environment
-- **Firejail sandbox** — wraps agent execution with filesystem and network restrictions, seccomp filtering
-- **Allow/blocklist** — explicit per-project command and file-extension rules; unknown = blocked
+- **Firejail sandbox (required)** — every tool call (commands *and* file I/O) runs inside firejail with filesystem whitelisting, network blocking, and seccomp filtering
+- **Command allowlist** — explicit per-project command rules; unknown = blocked. Inline code-execution flags (`-c`, `-e`, `--eval`, …) are blocked even for allowed interpreters
+- **Resource caps** — configurable limits on file read/write sizes and command output
 - **MCP bridge** — stdio JSON-RPC 2.0 server compatible with any MCP-capable agent
 
 ---
@@ -32,7 +33,7 @@ A local sandboxed AI agent workspace CLI. Agents like OpenClaw and Hermes Agent 
 
 - Python 3.10+
 - Linux (Ubuntu / Zorin OS or compatible)
-- `firejail` (optional but strongly recommended for full sandboxing)
+- `firejail` — **required**; kennelbox refuses to start without it
 
 ### Install firejail
 
@@ -40,7 +41,7 @@ A local sandboxed AI agent workspace CLI. Agents like OpenClaw and Hermes Agent 
 sudo apt install firejail
 ```
 
-> kennelbox works without firejail but falls back to CWD-only restriction enforced in software. Install firejail for full kernel-level isolation.
+> firejail provides the kernel-level isolation boundary. There is no software-only fallback — without firejail, `kennelbox run` exits with an error.
 
 ---
 
@@ -54,12 +55,12 @@ cd kennelbox
 bash install.sh
 ```
 
-The installer checks your Python version, optionally installs firejail via `apt`, runs `pip install -e .`, and verifies `kennelbox` is on your PATH.
+The installer checks your Python version, installs firejail via `apt` (required), installs the package via `pipx` (preferred) or `pip` (fallback), and verifies `kennelbox` is on your PATH.
 
 ```
 Options:
   --yes           accept all prompts non-interactively
-  --no-firejail   skip the firejail apt step
+  --no-firejail   skip the firejail apt step (kennelbox will not run until it's installed)
 ```
 
 ### Manual install
@@ -67,8 +68,10 @@ Options:
 ```bash
 git clone https://github.com/datacarismo/kennelbox.git
 cd kennelbox
-pip install -e .
+pipx install --editable .    # or: pip install -e .
 ```
+
+> `pipx` is recommended — it installs into an isolated venv and avoids PEP 668 "externally managed environment" errors on modern Debian/Ubuntu.
 
 ### Via pip (once published)
 
@@ -126,14 +129,21 @@ Controls which commands and file extensions agents may access.
 ```toml
 [commands]
 allowed = ["ls", "cat", "grep", "python3", "pip", "node", "npm", "git status", "git log", "git diff"]
-blocked = ["rm -rf", "sudo", "curl", "wget", "nc", "chmod 777", "mkfs", "dd", "shutdown", "reboot"]
+# Flags enabling inline code execution — blocked regardless of base command
+blocked_args = ["-c", "-e", "--eval", "--exec", "-x", "--command"]
+# Advisory only: matches are logged as warnings but NOT blocked
+warn_patterns = ["rm -rf", "sudo", "curl", "wget", "nc", "chmod 777", "mkfs", "dd", "shutdown", "reboot"]
+
+[limits]
+max_read_bytes = 10485760    # 10 MB
+max_write_bytes = 10485760   # 10 MB
+max_output_bytes = 1048576   # 1 MB — command output truncated beyond this
 
 [files]
-allowed_extensions = [".py", ".js", ".ts", ".json", ".toml", ".yaml", ".md", ".txt", ".env.example"]
-blocked_extensions = [".env", ".pem", ".key", ".cert"]
+allowed_extensions = [".py", ".js", ".ts", ".json", ".toml", ".yaml", ".md", ".txt"]
 ```
 
-Unknown commands default to **BLOCKED**.
+Unknown commands default to **BLOCKED**. Dotfiles and sensitive filenames (`.env`, `.pem`, `.key`, etc.) are always denied regardless of the extension allowlist.
 
 ### `.kennelbox/sandbox.toml`
 
@@ -220,13 +230,17 @@ kennelbox/
 
 ## Security Model
 
-1. **Filesystem** — firejail whitelists only `$CWD`. `/home`, `/etc`, `/var`, `/root`, `/tmp`, `/proc`, `/sys` are all blacklisted.
-2. **Network** — disabled by default (`net=none` in firejail). Set `network = true` in `sandbox.toml` to enable.
-   > **Note:** this restriction applies only to shell commands run via the `run_command` tool (the firejail subprocess). The kennelbox process itself and the agent process connecting over stdio are outside the sandbox — LLM API calls (to Anthropic, OpenAI, etc.) are unaffected.
-3. **Commands** — only commands in `allowed` run; any command matching a `blocked` pattern is rejected before execution.
-4. **Files** — only `allowed_extensions` may be read or written; `blocked_extensions` are always rejected.
-5. **Path escape** — every file path is resolved and checked against the project root before any I/O.
-6. **Syscalls** — seccomp drops `mount`, `ptrace`, `reboot`, `kexec_load`, and other dangerous syscalls.
+**The firejail sandbox is the security boundary.** The allowlist is policy/UX guidance layered on top — it shapes what a well-behaved agent can request, but kernel-level isolation is what actually contains a misbehaving one. firejail is therefore required; kennelbox refuses to start without it.
+
+1. **Filesystem** — firejail whitelists only `$CWD` within the home tree. Credential directories (`~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.config/gcloud`, etc.) are explicitly blacklisted. `/tmp` and `/dev` are replaced with private views (`--private-tmp`, `--private-dev`).
+2. **All tool I/O is sandboxed** — not just `run_command`: `read_file`, `write_file`, and `list_directory` also execute inside firejail.
+3. **Network** — disabled by default (`net=none`). Set `network = true` in `sandbox.toml` to enable.
+   > **Note:** this applies to the firejail subprocesses. The kennelbox process itself and the agent connecting over stdio are outside the sandbox — LLM API calls (to Anthropic, OpenAI, etc.) are unaffected.
+4. **Commands** — only commands in `allowed` run. Argument flags enabling inline code execution (`-c`, `-e`, `--eval`, `--exec`, `-x`, `--command`) are rejected even for allowed interpreters. `warn_patterns` are advisory only — logged, never enforced.
+5. **Files** — extension allowlist plus unconditional denial of dotfiles and sensitive filenames (`.env`, `.pem`, `.key`, `.cert`, `.pfx`, `.p12`). Writes to `.kennelbox/` (the config directory) are always blocked.
+6. **Path escape** — every path is resolved and containment-checked against the project root (`Path.relative_to`, not string prefix) before any I/O.
+7. **Resource caps** — file reads/writes and command output are size-limited (configurable in `[limits]`).
+8. **Syscalls** — firejail's default `--seccomp` filter (maintained upstream, more complete than any hand-rolled list).
 
 kennelbox does **not** require root. firejail handles privilege separation at the kernel level via user namespaces.
 
