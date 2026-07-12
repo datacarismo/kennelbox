@@ -17,6 +17,12 @@ dependencies = [
     "tomli>=2.0; python_version < '3.11'",
 ]
 
+[project.urls]
+Homepage = "https://github.com/datacarismo/kennelbox"
+Repository = "https://github.com/datacarismo/kennelbox"
+Issues = "https://github.com/datacarismo/kennelbox/issues"
+Changelog = "https://github.com/datacarismo/kennelbox/releases"
+
 [project.scripts]
 kennelbox = "kennelbox:app"
 
