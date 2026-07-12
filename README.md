@@ -249,4 +249,4 @@ kennelbox does **not** require root. firejail handles privilege separation at th
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE)
