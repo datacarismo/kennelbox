@@ -312,7 +312,7 @@ def dispatch(request: dict, cwd: Path, guard: AllowlistGuard, sandbox_cfg: dict)
             return _ok(req_id, {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "kennelbox", "version": "0.1.0"},
+                "serverInfo": {"name": "kennelbox", "version": "0.1.1"},
             })
 
         if method == "tools/list":

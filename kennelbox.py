@@ -41,7 +41,7 @@ BANNER = """\
 ║  ██║  ██╗██████╔╝            ║
 ║  ╚═╝  ╚═╝╚═════╝             ║
 ╠══════════════════════════════╣
-║  KENNELBOX  //  v0.1.0       ║
+║  KENNELBOX  //  v0.1.1       ║
 ║  agent sandbox + MCP bridge  ║
 ╠══════════════════════════════╣
 ║  $ kennelbox run --agent <x> ║

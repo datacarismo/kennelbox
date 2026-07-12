@@ -6,7 +6,7 @@ dispatched through the same allowlist/sandbox pipeline as the stdio server.
 
 Endpoints:
   POST /         JSON-RPC 2.0 request → JSON-RPC 2.0 response
-  GET  /health   {"status": "ok", "version": "0.1.0"}
+  GET  /health   {"status": "ok", "version": "0.1.1"}
 
 Security posture:
   - A bearer token is REQUIRED — run_http_server refuses to start without one.
@@ -28,7 +28,7 @@ from rich.console import Console
 
 console = Console(stderr=True)
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 
 
 class _ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
