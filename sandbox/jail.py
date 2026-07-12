@@ -6,9 +6,6 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-from rich.console import Console
-
-console = Console(stderr=True)
 
 def firejail_available() -> bool:
     return shutil.which("firejail") is not None
@@ -121,6 +118,15 @@ def run_sandboxed_file_op(
             " open(p,'w').write(content);"
             " print(json.dumps({'written':p,'bytes':len(content.encode())}))"
         ),
+        # edit: stdin carries JSON {"old": ..., "new": ...}; old must match exactly once
+        "edit": (
+            "import sys,json; d=json.load(sys.stdin); p=sys.argv[1];"
+            " s=open(p,errors='replace').read(); n=s.count(d['old']);"
+            " (sys.stderr.write('old_string not found in file'), sys.exit(1)) if n==0 else None;"
+            " (sys.stderr.write(f'old_string matches {n} times; must be unique'), sys.exit(1)) if n>1 else None;"
+            " open(p,'w').write(s.replace(d['old'],d['new'],1));"
+            " print(json.dumps({'edited':p,'replacements':1}))"
+        ),
     }
 
     script = _scripts[op]
@@ -137,7 +143,7 @@ def run_sandboxed_file_op(
         capture_output=True,
         text=True,
         timeout=timeout,
-        input=content if op == "write" else None,
+        input=content if op in ("write", "edit") else None,
         env=env,
     )
 

@@ -151,6 +151,37 @@ def tool_write_file(cwd: Path, guard: AllowlistGuard, sandbox_cfg: dict, params:
     return run_sandboxed_file_op("write", str(target), cwd, sandbox_cfg, content=content)
 
 
+def tool_edit_file(cwd: Path, guard: AllowlistGuard, sandbox_cfg: dict, params: dict) -> Any:
+    path_str = params.get("path", "")
+    old_string = params.get("old_string", "")
+    new_string = params.get("new_string", "")
+    if not old_string:
+        raise ValueError("old_string must not be empty")
+    if old_string == new_string:
+        raise ValueError("old_string and new_string are identical")
+    ok, reason = guard.check_file(path_str)
+    if not ok:
+        raise PermissionError(reason)
+    target = _safe_path(cwd, path_str)
+    kennelbox_dir = cwd.resolve() / ".kennelbox"
+    try:
+        target.relative_to(kennelbox_dir)
+        raise PermissionError("Edits to .kennelbox/ are not permitted")
+    except ValueError:
+        pass  # target is not inside .kennelbox/ — safe to proceed
+    if not target.is_file():
+        raise FileNotFoundError(f"No such file: {path_str}")
+    size = target.stat().st_size
+    if size > guard.max_read_bytes:
+        raise PermissionError(
+            f"File is {size} bytes, exceeds max_read_bytes ({guard.max_read_bytes})"
+        )
+    import json as _json
+    payload = _json.dumps({"old": old_string, "new": new_string})
+    from sandbox.jail import run_sandboxed_file_op
+    return run_sandboxed_file_op("edit", str(target), cwd, sandbox_cfg, content=payload)
+
+
 def tool_list_directory(cwd: Path, guard: AllowlistGuard, sandbox_cfg: dict, params: dict) -> Any:
     path_str = params.get("path", ".")
     target = _safe_path(cwd, path_str)
@@ -229,6 +260,19 @@ _TOOLS_MANIFEST = [
         },
     },
     {
+        "name": "edit_file",
+        "description": "Replace an exact string in a file. old_string must match exactly once; the edit fails if it matches zero or multiple times.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Relative path from project root"},
+                "old_string": {"type": "string", "description": "Exact text to find (must be unique in the file)"},
+                "new_string": {"type": "string", "description": "Text to replace it with"},
+            },
+            "required": ["path", "old_string", "new_string"],
+        },
+    },
+    {
         "name": "list_directory",
         "description": "List files and directories at a path within the project",
         "inputSchema": {
@@ -282,6 +326,8 @@ def dispatch(request: dict, cwd: Path, guard: AllowlistGuard, sandbox_cfg: dict)
                 result = tool_read_file(cwd, guard, sandbox_cfg, tool_args)
             elif tool_name == "write_file":
                 result = tool_write_file(cwd, guard, sandbox_cfg, tool_args)
+            elif tool_name == "edit_file":
+                result = tool_edit_file(cwd, guard, sandbox_cfg, tool_args)
             elif tool_name == "list_directory":
                 result = tool_list_directory(cwd, guard, sandbox_cfg, tool_args)
             elif tool_name == "run_command":
@@ -302,6 +348,8 @@ def dispatch(request: dict, cwd: Path, guard: AllowlistGuard, sandbox_cfg: dict)
         return _err(req_id, -32003, f"Permission denied: {exc}")
     except FileNotFoundError as exc:
         return _err(req_id, -32004, f"File not found: {exc}")
+    except ValueError as exc:
+        return _err(req_id, -32602, f"Invalid params: {exc}")
     except Exception as exc:
         return _err(req_id, -32000, f"Server error: {exc}")
 

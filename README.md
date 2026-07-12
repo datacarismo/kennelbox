@@ -169,6 +169,7 @@ kennelbox exposes a stdio JSON-RPC 2.0 server (MCP-compatible). When you run `ke
 |---|---|
 | `read_file` | Read a file relative to the project root |
 | `write_file` | Write a file relative to the project root |
+| `edit_file` | Replace an exact, unique string in a file (fails on zero or multiple matches) |
 | `list_directory` | List directory contents |
 | `run_command` | Run an allowlisted shell command |
 
