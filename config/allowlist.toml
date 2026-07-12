@@ -11,6 +11,9 @@ allowed = [
   "git log",
   "git diff",
 ]
+# Argument tokens that enable inline code execution — blocked regardless of base command.
+# e.g. "python3 -c '...'" and "node -e '...'" are denied even though python3/node are allowed.
+blocked_args = ["-c", "-e", "--eval", "--exec", "-x", "--command"]
 # Advisory patterns: matched commands are logged as warnings but NOT blocked.
 # The allowlist above is the only real access control.
 warn_patterns = [

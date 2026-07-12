@@ -31,6 +31,11 @@ def _load_toml(path: Path) -> dict:
 
 _BLOCKED_FILENAMES = {".env", ".pem", ".key", ".cert", ".pfx", ".p12"}
 
+# Default blocked argument flags — allow operator to extend via allowlist.toml but never shrink
+# below this set (config replaces rather than merges, so these are the shipped defaults).
+_DEFAULT_BLOCKED_ARGS: set[str] = {"-c", "-e", "--eval", "--exec", "-x", "--command"}
+
+
 class AllowlistGuard:
     """Validates tool requests against the project's allowlist.toml."""
 
@@ -45,8 +50,21 @@ class AllowlistGuard:
         # warn_patterns: advisory only — logged but never used to block
         self.warn_patterns: list[str] = cmds.get("warn_patterns", cmds.get("blocked", []))
         self.allowed_extensions: list[str] = files.get("allowed_extensions", [])
+        # blocked_args: argument tokens that enable inline code execution — always blocked
+        self.blocked_args: set[str] = set(
+            cmds.get("blocked_args", list(_DEFAULT_BLOCKED_ARGS))
+        )
 
     def check_command(self, command: str) -> tuple[bool, str]:
+        try:
+            tokens = shlex.split(command)
+        except ValueError as exc:
+            return False, f"Invalid shell syntax: {exc}"
+
+        for token in tokens[1:]:  # skip the command name itself
+            if token in self.blocked_args:
+                return False, f"Argument '{token}' is not permitted (inline code execution blocked)"
+
         for pattern in self.warn_patterns:
             if pattern in command:
                 print(

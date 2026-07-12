@@ -219,6 +219,16 @@ def rules(
 
     console.print()
 
+    b = Table(title="Blocked Argument Flags", box=box.ROUNDED, show_header=True)
+    b.add_column("Type", style="bold")
+    b.add_column("Flag")
+    for flag in cmds.get("blocked_args", ["-c", "-e", "--eval", "--exec", "-x", "--command"]):
+        b.add_row("[red]BLOCKED[/red]", flag)
+    console.print(b)
+    console.print("[dim]These flags enable inline code execution and are denied regardless of base command.[/dim]")
+
+    console.print()
+
     f = Table(title="File Extension Rules", box=box.ROUNDED, show_header=True)
     f.add_column("Type", style="bold")
     f.add_column("Extension")
