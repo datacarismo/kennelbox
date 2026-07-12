@@ -8,7 +8,7 @@ import os
 import shutil
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import typer
 from rich.console import Console
@@ -150,27 +150,17 @@ def init(
 def run(
     agent: str = typer.Option(..., "--agent", "-a", help="Agent name (e.g. openclaw, hermes)"),
     cwd: Optional[Path] = typer.Option(None, "--cwd", help="Project directory (default: current)"),
-    stdio: bool = typer.Option(True, "--stdio/--no-stdio", help="Use stdio MCP transport"),
+    http: bool = typer.Option(False, "--http", help="Serve over HTTP instead of stdio (for remote agents)"),
+    host: str = typer.Option("127.0.0.1", "--host", help="HTTP bind address (e.g. your Tailscale IP)"),
+    port: int = typer.Option(7333, "--port", help="HTTP port"),
+    token: Optional[str] = typer.Option(None, "--token", help="Bearer auth token (auto-generated if omitted)"),
+    allowed_ip: Optional[List[str]] = typer.Option(None, "--allowed-ip", help="Allowed client IP (repeatable); default: any with token"),
 ) -> None:
-    """Start a sandboxed MCP agent session."""
+    """Start a sandboxed MCP agent session (stdio or HTTP)."""
     target = (cwd or Path.cwd()).resolve()
     kb_dir = _require_init(target)
     sandbox_cfg = _load_sandbox_cfg(kb_dir)
     state = _load_state(kb_dir)
-
-    console.print(f"\n[bold]Starting sandboxed session[/bold]")
-    console.print(f"  Agent:   [cyan]{agent}[/cyan]")
-    console.print(f"  CWD:     {target}")
-    console.print(f"  Network: {'[red]blocked[/red]' if not sandbox_cfg.get('network', False) else '[green]allowed[/green]'}")
-
-    from sandbox.jail import firejail_available
-    if firejail_available():
-        console.print("  Sandbox: [green]firejail active[/green]")
-    else:
-        console.print("  Sandbox: [yellow]firejail not found — CWD-only restriction[/yellow]")
-
-    state["active_agent"] = agent
-    _save_state(kb_dir, state)
 
     from sandbox.jail import firejail_available
     if not firejail_available():
@@ -181,12 +171,38 @@ def run(
         )
         raise typer.Exit(1)
 
-    console.print("\n[bold cyan]MCP bridge running on stdio. Connect your agent now.[/bold cyan]")
-    console.print("[dim](Ctrl-C to stop)[/dim]\n")
+    console.print(f"\n[bold]Starting sandboxed session[/bold]")
+    console.print(f"  Agent:     [cyan]{agent}[/cyan]")
+    console.print(f"  CWD:       {target}")
+    console.print(f"  Transport: [cyan]{'HTTP' if http else 'stdio'}[/cyan]")
+    console.print(f"  Cmd net:   {'[red]blocked[/red]' if not sandbox_cfg.get('network', False) else '[green]allowed[/green]'}")
+    console.print(f"  Sandbox:   [green]firejail active[/green]")
+
+    state["active_agent"] = agent
+    _save_state(kb_dir, state)
 
     try:
-        from agent_bridge.server import run_server
-        run_server(target, sandbox_cfg)
+        if http:
+            import secrets as _secrets
+            actual_token = token
+            if not actual_token:
+                actual_token = _secrets.token_hex(16)
+                console.print(f"\n  [yellow]No --token given — auto-generated:[/yellow] [bold]{actual_token}[/bold]")
+                console.print("  [dim]Pass this to your agent as the Bearer token.[/dim]")
+
+            from agent_bridge.http_server import run_http_server
+            run_http_server(
+                target, sandbox_cfg,
+                host=host,
+                port=port,
+                token=actual_token,
+                allowed_ips=allowed_ip,
+            )
+        else:
+            console.print("\n[bold cyan]MCP bridge running on stdio. Connect your agent now.[/bold cyan]")
+            console.print("[dim](Ctrl-C to stop)[/dim]\n")
+            from agent_bridge.server import run_server
+            run_server(target, sandbox_cfg)
     except KeyboardInterrupt:
         console.print("\n[yellow]Session terminated by user.[/yellow]")
     finally:

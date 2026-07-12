@@ -161,7 +161,21 @@ seccomp = true           # drop dangerous syscalls
 
 ## MCP Bridge
 
-kennelbox exposes a stdio JSON-RPC 2.0 server (MCP-compatible). When you run `kennelbox run`, the server starts on stdin/stdout and your agent connects to it.
+kennelbox exposes a JSON-RPC 2.0 server (MCP-compatible) over two transports:
+
+**stdio (default)** — the server starts on stdin/stdout and a local agent connects to it.
+
+**HTTP (`--http`)** — for remote agents (e.g. an agent on a VPS reaching your machine over Tailscale):
+
+```bash
+kennelbox run --agent hermes --http --host 100.x.x.x --port 7333
+```
+
+- A bearer token is **required** — auto-generated and printed if you don't pass `--token`
+- Binds `127.0.0.1` by default; pass `--host` (e.g. your Tailscale IP) to accept remote connections
+- Optional `--allowed-ip` (repeatable) restricts clients by source IP on top of the token
+- `GET /health` for liveness; `POST /` for JSON-RPC
+- Every HTTP request goes through the same allowlist + firejail pipeline as stdio
 
 ### Available MCP Tools
 
