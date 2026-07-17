@@ -177,6 +177,8 @@ kennelbox run --agent hermes --http --host 100.x.x.x --port 7333
 - `GET /health` for liveness; `POST /` for JSON-RPC
 - Every HTTP request goes through the same allowlist + firejail pipeline as stdio
 
+Full setup instructions for both transports, including smoke tests and troubleshooting, are in [docs/connecting-agents.md](docs/connecting-agents.md).
+
 ### Available MCP Tools
 
 | Tool | Description |
@@ -207,6 +209,8 @@ Configure OpenClaw to use kennelbox as its MCP server:
 }
 ```
 
+See [docs/connecting-agents.md](docs/connecting-agents.md) for details.
+
 ---
 
 ## Connecting Hermes Agent
@@ -221,6 +225,8 @@ Add to your Hermes Agent config:
   }
 }
 ```
+
+For a remote Hermes (e.g. on a VPS) connecting over HTTP/Tailscale, see [docs/connecting-agents.md](docs/connecting-agents.md).
 
 ---
 
